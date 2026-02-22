@@ -1,4 +1,5 @@
 import os,sys
+from urllib.parse import urlparse
 from networksecurity.exception.exception import NetworkSecurityException
 from networksecurity.logging.logger import logging
 from networksecurity.entity.artifacts_entity import DataTransformationArtifact,ModelTrainerArtifact
@@ -19,6 +20,14 @@ from sklearn.ensemble import (
     GradientBoostingClassifier,
     AdaBoostClassifier
 )
+import dagshub
+os.environ["MLFLOW_TRACKING_URI"]="https://dagshub.com/navadeepgoud12/networksecurity.mlflow"
+os.environ["MLFLOW_TRACKING_USERNAME"]="navadeepgoud12"
+os.environ["MLFLOW_TRACKING_PASSWORD"]="02ebde13bf67930a47194beb38fc1a3a52c8c659"
+try:
+    dagshub.init(repo_owner='navadeepgoud12', repo_name='Networksecurity', mlflow=True)
+except Exception as e:
+    logging.warning(f"DagHub initialization failed: {e}")
 
 class ModelTrainer:
     def __init__(self,model_trainer_config:ModelTrainerConfig,data_transformation_artifact:DataTransformationArtifact):
@@ -28,10 +37,26 @@ class ModelTrainer:
         except Exception as e:
             raise NetworkSecurityException(e,sys)
     def track_mlflow(self,best_model,classificationmetric):
+        mlflow.set_registry_uri("https://dagshub.com/navadeepgoud12/networksecurity.mlflow")
+        tracking_url_type_store = urlparse(mlflow.get_tracking_uri()).scheme
         with mlflow.start_run():
             f1_score=classificationmetric.f1_score
             precision_score=classificationmetric.precision_score
             recall_score=classificationmetric.recall_score
+            mlflow.log_metric("f1_score",f1_score)
+            mlflow.log_metric("precision",precision_score)
+            mlflow.log_metric("recall_score",recall_score)
+            mlflow.sklearn.log_model(best_model,"model")
+            # Model registry does not work with file store
+            if tracking_url_type_store != "file":
+
+                # Register the model
+                # There are other ways to use the Model Registry, which depends on the use case,
+                # please refer to the doc for more information:
+                # https://mlflow.org/docs/latest/model-registry.html#api-workflow
+                mlflow.sklearn.log_model(best_model, "model", registered_model_name="model")
+            else:
+                mlflow.sklearn.log_model(best_model, "model")
         
     def train_model(self,X_train,y_train,X_test,y_test):
         models = {
@@ -111,9 +136,8 @@ class ModelTrainer:
         logging.info(f"Model trainer artifact: {model_trainer_artifact}")
         return model_trainer_artifact
     
-
-
-        
+    
+            
     def initate_model_trainer(self)->ModelTrainerArtifact:
         try:
             train_file_path = self.data_transformation_artifact.transformed_train_file_path
